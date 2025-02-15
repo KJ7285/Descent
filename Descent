@@ -1,0 +1,36 @@
+getgenv().Descent = { Config = { SilentAim = { Enabled = true, Prediction = 0.145, AimPart = "HumanoidRootPart", AirPart = "UpperTorso", Offset = Vector3.new(0, 0.27, 0) }, FOV = { Enabled = true, Radius = 120 }, AutoAir = true, AutoBuyAfterDeath = true, WallCheck = true, Method = "Namecall" }, Metadata = {}, Items = { Weapons = {"[Tactical Shotgun]", "[Shotgun]", "[USP]", "[Silencer]"}, Armor = "[High-Medium Armor]", Food = "[Chicken]" } }
+
+local Services = { Players = game:GetService("Players"), RunService = game:GetService("RunService"), Workspace = game:GetService("Workspace"), StarterGui = game:GetService("StarterGui") }
+
+local LocalPlayer = Services.Players.LocalPlayer local Camera = Services.Workspace.CurrentCamera local shopFolder = Services.Workspace:FindFirstChild("MAP") and Services.Workspace.MAP:FindFirstChild("Shops")
+
+local function Notify(text) Services.StarterGui:SetCore("SendNotification", {Title = "Descent", Text = text, Duration = 5}) end
+
+Notify("Descent Loaded Successfully")
+
+local FOVCircle = Drawing.new("Circle") FOVCircle.Color = Color3.fromRGB(100, 100, 255) FOVCircle.Thickness = 1 FOVCircle.Radius = Descent.Config.FOV.Radius FOVCircle.Filled = false FOVCircle.Transparency = 0.5 FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+local TargetIndicator = Drawing.new("Circle") TargetIndicator.Color = Color3.fromRGB(255, 0, 0) TargetIndicator.Thickness = 2 TargetIndicator.Radius = 3 TargetIndicator.Filled = true TargetIndicator.Visible = false
+
+local function UpdateFOV() FOVCircle.Visible = Descent.Config.SilentAim.Enabled and Descent.Config.FOV.Enabled end
+
+local function BuyItem(item) if not shopFolder then return end local shopItem = shopFolder:FindFirstChild(item) if shopItem and shopItem:FindFirstChild("ClickDetector") then fireclickdetector(shopItem.ClickDetector) task.wait(0.2) end end
+
+local function AutoBuy() if not Descent.Config.AutoBuyAfterDeath then return end repeat task.wait() until LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") BuyItem(Descent.Items.Armor) for _, weapon in ipairs(Descent.Items.Weapons) do BuyItem(weapon) end BuyItem(Descent.Items.Food) end
+
+LocalPlayer.CharacterAdded:Connect(AutoBuy)
+
+local function IsTargetVisible(part) if not Descent.Config.WallCheck then return true end local origin, direction = Camera.CFrame.Position, (part.Position - Camera.CFrame.Position).Unit * (part.Position - Camera.CFrame.Position).Magnitude local params = RaycastParams.new() params.FilterDescendantsInstances = {LocalPlayer.Character} params.FilterType = Enum.RaycastFilterType.Blacklist local result = Services.Workspace:Raycast(origin, direction, params) return not result or result.Instance:IsDescendantOf(part.Parent) end
+
+local function GetNearestTarget() local nearest, shortestDistance = nil, Descent.Config.FOV.Radius for _, player in ipairs(Services.Players:GetPlayers()) do if player ~= LocalPlayer and player.Character then local char, humanoid = player.Character, player.Character:FindFirstChildOfClass("Humanoid") if humanoid and humanoid.Health > 0 and not char:GetAttribute("Knocked") then local part = humanoid:GetState() == Enum.HumanoidStateType.Freefall and char:FindFirstChild(Descent.Config.SilentAim.AirPart) or char:FindFirstChild(Descent.Config.SilentAim.AimPart) if part and IsTargetVisible(part) then local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position) if onScreen then local distance = (Vector2.new(screenPos.X, screenPos.Y) - FOVCircle.Position).Magnitude if distance < shortestDistance then shortestDistance, nearest = distance, part Descent.Metadata = {TargetName = player.Name, TargetDistance = math.floor(distance), TargetHealth = math.floor(humanoid.Health)} end end end end end end return nearest end
+
+local OriginalHook local Target
+
+OriginalHook = hookmetamethod(game, "__namecall", function(self, ...) local args, method = {...}, getnamecallmethod() if Descent.Config.SilentAim.Enabled and Descent.Config.Method == "Namecall" and method == "FireServer" and Target then if args[1] == "MOUSE" or args[1] == "UpdateMousePos" then args[2] = Target.Position + Descent.Config.SilentAim.Offset + (Target.Velocity * Descent.Config.SilentAim.Prediction) end return OriginalHook(self, unpack(args)) end return OriginalHook(self, ...) end)
+
+local function AutoAirCheck() while true do if Descent.Config.AutoAir and Target and Target.Parent then local humanoid = Target.Parent:FindFirstChildOfClass("Humanoid") if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Freefall then task.wait(0.22) local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool") if tool then tool:Activate() end end end task.wait(0.1) end end
+
+task.spawn(AutoAirCheck)
+
+Services.RunService.RenderStepped:Connect(function() Target = GetNearestTarget() UpdateFOV() if Target then local screenPos, onScreen = Camera:WorldToViewportPoint(Target.Position + Descent.Config.SilentAim.Offset) TargetIndicator.Position = Vector2.new(screenPos.X, screenPos.Y) TargetIndicator.Visible = onScreen else TargetIndicator.Visible = false Descent.Metadata = {} end end)
+
